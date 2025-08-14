@@ -2,38 +2,34 @@ name: Deploy Rust API to EC2
 
 on:
   push:
-    branches: [ "main" ] # This workflow triggers on pushes to the 'main' branch.
+    branches: [ "main" ]
 
 jobs:
   deploy:
-    runs-on: ubuntu-latest # The job will run on a fresh Ubuntu runner provided by GitHub Actions.
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3 # Checks out your Rust API repository code into the runner.
-
-      # Removed: The "Build Rust API" step that contained `cargo build --release`.
-      # This means the binary must exist at 'target/release/blazing_rust_000'
-      # before this workflow runs, or be supplied by a previous action not shown here.
+        uses: actions/checkout@v3
 
       - name: Set up AWS credentials
-        uses: aws-actions/configure-aws-credentials@v1 # Configures AWS credentials for interacting with AWS services.
+        uses: aws-actions/configure-aws-credentials@v1
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }} # Your AWS Access Key ID, stored as a GitHub secret.
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }} # Your AWS Secret Access Key, stored as a GitHub secret.
-          aws-region: ${{ secrets.AWS_REGION }} # Your AWS region, stored as a GitHub secret.
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }} 
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
 
       - name: Copy Rust binary to EC2 instance
-        uses: appleboy/scp-action@master # Uses the SCP action to securely copy files to your EC2 instance.
+        uses: appleboy/scp-action@master
         with:
           host: ${{ secrets.HOST_DNS }}
           username: ${{ secrets.USERNAME }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-          source: "target/release/blazing_rust_000" # Source path of the compiled Rust binary on the runner.
-          target: "/tmp" # Temporary destination path on the EC2 instance.
-          overwrite: true # Overwrite existing file on the EC2 instance.
+          source: "target/release/blazing_rust_000"
+          target: "/tmp"
+          overwrite: true
           
       - name: Connect to EC2 instance and Deploy API
-        uses: appleboy/ssh-action@master # Uses the SSH action to connect to your EC2 instance and run commands.
+        uses: appleboy/ssh-action@master
         with:
           host: ${{ secrets.HOST_DNS }}
           username: ${{ secrets.USERNAME }}
@@ -42,8 +38,6 @@ jobs:
             echo "Clearing Nginx cache..."
             sudo rm -rf /var/cache/nginx/*
 
-            # Kill any existing process running on port 7000 to avoid conflicts.
-            # This ensures a clean restart of your API.
             echo "Checking and killing processes on port 7000..."
             if command -v lsof >/dev/null 2>&1; then
               if sudo lsof -ti:7000; then
@@ -62,23 +56,13 @@ jobs:
               fi
             fi
             
-            echo "Moving binary to /usr/local/bin and setting permissions..."
-            # Move the compiled Rust binary from the temporary location to a permanent one.
-            # Ensure /usr/local/bin exists or choose another suitable directory like /opt/your_app/.
             sudo mv /tmp/blazing_rust_000 /usr/local/bin/blazing_rust_000
             sudo chmod +x /usr/local/bin/blazing_rust_000 # Make the binary executable.
 
-            # Start the Rust API in a detached screen session on port 7000.
-            # This ensures the process continues running even if the SSH connection breaks.
             echo "Starting Rust API on port 7000 in a detached screen session..."
-            sudo screen -dmS blazing_rust_000 /usr/local/bin/blazing_rust_000
+            sudo screen -S blazing_rust_000 /usr/local/bin/blazing_rust_000
             
-            # Note: Ensure your Rust API code is configured to listen on port 7000.
-            # This YAML starts the binary, but the port binding is controlled by the Rust application's code.
-
-            echo "Restarting Nginx..."
             sudo systemctl restart nginx
-            echo "Reloading Nginx configuration..."
             sudo systemctl reload nginx 
 
       - name: Wait for deployment
