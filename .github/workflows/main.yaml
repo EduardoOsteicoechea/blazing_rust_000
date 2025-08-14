@@ -1,4 +1,4 @@
-name: Deploy Pre-Built Rust API to EC2 (Direct Copy)
+name: Deploy Pre-Built Rust API to EC2 (Direct Copy - No Build)
 
 on:
   push:
@@ -10,8 +10,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v3 # Checks out your repository code into the runner.
-        # CRITICAL ASSUMPTION: This step will make 'target/release/blazing_rust_000'
-        # available on the runner *if and only if* it has been committed to your Git repo.
+        # IMPORTANT: This step makes 'target/release/blazing_rust_000'
+        # available on the runner *only if* it has been committed to your Git repo.
 
       - name: Set up AWS credentials
         uses: aws-actions/configure-aws-credentials@v1 # Configures AWS credentials for interacting with AWS services.
@@ -27,7 +27,8 @@ jobs:
           username: ${{ secrets.USERNAME }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           # Source path of the pre-built Rust binary on the runner.
-          # This assumes 'target/release/blazing_rust_000' exists in your checked-out repository.
+          # This step will FAIL if 'target/release/blazing_rust_000' does not exist
+          # in your repository's checked-out code on the runner.
           source: "target/release/blazing_rust_000"
           target: "/tmp" # Temporary destination path on the EC2 instance.
           overwrite: true # Overwrite existing file.
@@ -64,7 +65,7 @@ jobs:
               fi
             fi
 
-            # Verify the binary exists in /tmp before moving and running it.
+            # Verify the binary exists in /tmp after copy before moving and running it.
             if [ -f "$REMOTE_TEMP_BINARY" ]; then
                 echo "Pre-built executable found at $REMOTE_TEMP_BINARY. Moving and setting permissions..."
                 sudo mv "$REMOTE_TEMP_BINARY" "$FINAL_BINARY_PATH"
