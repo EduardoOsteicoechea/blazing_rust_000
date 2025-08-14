@@ -1,0 +1,58 @@
+name: Deploy to ec2
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up AWS credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+  
+      - name: Connect to EC2 instance
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.HOST_DNS }}
+          username: ${{ secrets.USERNAME }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            sudo rm -rf /var/cache/nginx/*
+
+            if command -v lsof >/dev/null 2>&1; then
+              if sudo lsof -ti:7000; then
+                echo "Killing processes on port 7000 using lsof..."
+                sudo kill -9 $(sudo lsof -ti:7000)
+              else
+                echo "No process found listening on port 7000 using lsof."
+              fi
+            else
+              echo "lsof not found, trying netstat..."
+              if sudo netstat -tuln | grep :7000; then
+                echo "Killing processes on port 7000 using netstat..."
+                sudo kill -9 $(sudo netstat -tulnp | grep :7000 | awk '{print $7}' | cut -d'/' -f1)
+              else
+                echo "No process found listening on port 7000 using netstat."
+              fi
+            fi
+            echo "Moving binary to /usr/local/bin and setting permissions..."
+            sudo mv /tmp/blazing_rust_000 /usr/local/bin/blazing_rust_000
+            sudo chmod +x /usr/local/bin/blazing_rust_000
+
+            echo "Starting Rust API on port 7000 in a detached screen session..."
+            sudo screen -S blazing_rust_api /usr/local/bin/blazing_rust_000
+           
+            sudo systemctl restart nginx
+            sudo systemctl reload nginx 
+
+      - name: Wait for deployment
+        run: |
+          sleep 5
