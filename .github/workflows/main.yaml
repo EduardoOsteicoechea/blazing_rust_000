@@ -1,4 +1,4 @@
-name: Deploy Rust API to EC2
+name: Deploy Pre-Built Rust API to EC2 (On-Instance Deployment)
 
 on:
   push:
@@ -8,16 +8,8 @@ jobs:
   deploy:
     runs-on: ubuntu-latest # The job will run on a fresh Ubuntu runner provided by GitHub Actions.
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v3 # Checks out your Rust API repository code into the runner.
-
-      - name: Build Rust API # <-- RE-ADDED THIS CRUCIAL STEP
-        run: |
-          echo "Building Rust API in release mode..."
-          # This command compiles your Rust project and places the executable
-          # at 'target/release/blazing_rust_000'.
-          cargo build --release
-          echo "Rust API build complete."
+      - name: Checkout code on runner (for context, not direct build/copy)
+        uses: actions/checkout@v3 # Checks out your repository code into the runner.
 
       - name: Set up AWS credentials
         uses: aws-actions/configure-aws-credentials@v1 # Configures AWS credentials for interacting with AWS services.
@@ -26,28 +18,21 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }} # Your AWS Secret Access Key, stored as a GitHub secret.
           aws-region: ${{ secrets.AWS_REGION }} # Your AWS region, stored as a GitHub secret.
 
-      - name: Copy Rust binary to EC2 instance
-        uses: appleboy/scp-action@master # Uses the SCP action to securely copy files to your EC2 instance.
-        with:
-          host: ${{ secrets.HOST_DNS }}
-          username: ${{ secrets.USERNAME }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          source: "target/release/blazing_rust_000" # This file will now exist due to the build step.
-          target: "/tmp" # Temporary destination path on the EC2 instance.
-          overwrite: true # Overwrite existing file on the EC2 instance.
-          
-      - name: Connect to EC2 instance and Deploy API
+      - name: Connect to EC2 instance, Clone Repo, Deploy, and Run API
         uses: appleboy/ssh-action@master # Uses the SSH action to connect to your EC2 instance and run commands.
         with:
           host: ${{ secrets.HOST_DNS }}
           username: ${{ secrets.USERNAME }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
+            REMOTE_REPO_URL="https://github.com/EduardoOsteicoechea/blazing_rust_000.git" # Assuming this is your API repo
+            TEMP_CLONE_DIR="/tmp/blazing_rust_source" # Temporary directory on EC2 to clone the source into.
+            FINAL_BINARY_PATH="/usr/local/bin/blazing_rust_000" # Where the executable will reside.
+
             echo "Clearing Nginx cache..."
             sudo rm -rf /var/cache/nginx/*
 
             # Kill any existing process running on port 7000 to avoid conflicts.
-            # This ensures a clean restart of your API.
             echo "Checking and killing processes on port 7000..."
             if command -v lsof >/dev/null 2>&1; then
               if sudo lsof -ti:7000; then
@@ -65,27 +50,42 @@ jobs:
                 echo "No process found listening on port 7000 using netstat."
               fi
             fi
-            
-            echo "Moving binary to /usr/local/bin and setting permissions..."
-            # Move the compiled Rust binary from the temporary location to a permanent one.
-            # Ensure /usr/local/bin exists or choose another suitable directory like /opt/your_app/.
-            sudo mv /tmp/blazing_rust_000 /usr/local/bin/blazing_rust_000
-            sudo chmod +x /usr/local/bin/blazing_rust_000 # Make the binary executable.
 
-            # Start the Rust API in a detached screen session on port 7000.
-            # This ensures the process continues running even if the SSH connection breaks.
+            # Clean up any previous temporary clone to ensure a fresh start.
+            echo "Cleaning up any previous temporary cloned directory ($TEMP_CLONE_DIR)..."
+            sudo rm -rf "$TEMP_CLONE_DIR"
+
+            echo "Cloning repository to temporary directory: $TEMP_CLONE_DIR"
+            # Clone the repository into a temporary directory on the EC2 instance.
+            git clone "$REMOTE_REPO_URL" "$TEMP_CLONE_DIR"
+
+            # Check if cloning was successful
+            if [ ! -d "$TEMP_CLONE_DIR" ]; then
+                echo "Error: Failed to clone repository $REMOTE_REPO_URL"
+                exit 1
+            fi
+
+            # Define the path to the pre-built binary within the cloned repository.
+            # Assuming the pre-built binary is committed at this location.
+            SOURCE_BINARY_IN_REPO="$TEMP_CLONE_DIR/target/release/blazing_rust_000"
+
+            echo "Locating pre-built binary at: $SOURCE_BINARY_IN_REPO"
+            if [ ! -f "$SOURCE_BINARY_IN_REPO" ]; then
+                echo "Error: Pre-built binary NOT found at $SOURCE_BINARY_IN_REPO in the cloned repository."
+                echo "Please ensure the 'target/release/blazing_rust_000' executable is committed to your repository."
+                exit 1
+            fi
+
+            echo "Moving binary to $FINAL_BINARY_PATH and setting permissions..."
+            sudo mv "$SOURCE_BINARY_IN_REPO" "$FINAL_BINARY_PATH"
+            sudo chmod +x "$FINAL_BINARY_PATH" # Make the binary executable.
+
+            echo "Cleaning up temporary cloned repository: $TEMP_CLONE_DIR"
+            sudo rm -rf "$TEMP_CLONE_DIR" # Remove the cloned source code.
+
             echo "Starting Rust API on port 7000 in a detached screen session..."
-            sudo screen -dmS blazing_rust_000 /usr/local/bin/blazing_rust_000
+            # Start the API using 'screen -dmS' to keep it running in the background.
+            sudo screen -dmS blazing_rust_000 "$FINAL_BINARY_PATH"
             
             # Note: Ensure your Rust API code is configured to listen on port 7000.
-            # This YAML starts the binary, but the port binding is controlled by the Rust application's code.
-
-            echo "Restarting Nginx..."
-            sudo systemctl restart nginx
-            echo "Reloading Nginx configuration..."
-            sudo systemctl reload nginx 
-
-      - name: Wait for deployment
-        run: |
-          echo "Waiting 5 seconds for services to come online..."
-          sleep 5
+            # This YAML starts the binary, but the
