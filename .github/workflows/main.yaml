@@ -1,4 +1,4 @@
-name: Deploy Rust API to EC2 (On-Instance Build) # Updated name for clarity
+name: Deploy Pre-Built Rust API to EC2 (Direct Copy)
 
 on:
   push:
@@ -8,8 +8,10 @@ jobs:
   deploy:
     runs-on: ubuntu-latest # The job will run on a fresh Ubuntu runner provided by GitHub Actions.
     steps:
-      - name: Checkout code on runner (for context, not direct build/copy)
+      - name: Checkout code
         uses: actions/checkout@v3 # Checks out your repository code into the runner.
+        # CRITICAL ASSUMPTION: This step will make 'target/release/blazing_rust_000'
+        # available on the runner *if and only if* it has been committed to your Git repo.
 
       - name: Set up AWS credentials
         uses: aws-actions/configure-aws-credentials@v1 # Configures AWS credentials for interacting with AWS services.
@@ -18,16 +20,27 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }} # Your AWS Secret Access Key, stored as a GitHub secret.
           aws-region: ${{ secrets.AWS_REGION }} # Your AWS region, stored as a GitHub secret.
 
-      - name: Connect to EC2 instance, Clone Repo, Build, Deploy, and Run API
+      - name: Copy Pre-Built Rust binary to EC2 instance
+        uses: appleboy/scp-action@master # Uses the SCP action to securely copy files to your EC2 instance.
+        with:
+          host: ${{ secrets.HOST_DNS }}
+          username: ${{ secrets.USERNAME }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          # Source path of the pre-built Rust binary on the runner.
+          # This assumes 'target/release/blazing_rust_000' exists in your checked-out repository.
+          source: "target/release/blazing_rust_000"
+          target: "/tmp" # Temporary destination path on the EC2 instance.
+          overwrite: true # Overwrite existing file.
+
+      - name: Connect to EC2 instance and Deploy API
         uses: appleboy/ssh-action@master # Uses the SSH action to connect to your EC2 instance and run commands.
         with:
           host: ${{ secrets.HOST_DNS }}
           username: ${{ secrets.USERNAME }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
-            REMOTE_REPO_URL="https://github.com/EduardoOsteicoechea/blazing_rust_000.git" # Assuming this is your API repo
-            TEMP_CLONE_DIR="/tmp/blazing_rust_source" # Temporary directory on EC2 to clone the source into.
-            FINAL_BINARY_PATH="/usr/local/bin/blazing_rust_000" # Where the executable will reside.
+            FINAL_BINARY_PATH="/usr/local/bin/blazing_rust_000"
+            REMOTE_TEMP_BINARY="/tmp/blazing_rust_000"
 
             echo "Clearing Nginx cache..."
             sudo rm -rf /var/cache/nginx/*
@@ -51,67 +64,23 @@ jobs:
               fi
             fi
 
-            # Clean up any previous temporary clone to ensure a fresh start.
-            echo "Cleaning up any previous temporary cloned directory ($TEMP_CLONE_DIR)..."
-            sudo rm -rf "$TEMP_CLONE_DIR"
-
-            echo "Cloning repository to temporary directory: $TEMP_CLONE_DIR"
-            # Clone the repository into a temporary directory on the EC2 instance.
-            git clone "$REMOTE_REPO_URL" "$TEMP_CLONE_DIR"
-
-            # Check if cloning was successful
-            if [ ! -d "$TEMP_CLONE_DIR" ]; then
-                echo "Error: Failed to clone repository $REMOTE_REPO_URL"
-                exit 1
-            fi
-
-            echo "Ensuring Rust toolchain is available for build..."
-            # Install Rust toolchain on EC2 if not already present (idempotent).
-            if ! command -v cargo >/dev/null 2>&1; then
-                echo "Rust toolchain not found. Installing Rustup..."
-                # It's crucial to install build-essential for Rust compilation
-                sudo apt update && sudo apt install -y curl build-essential
-                curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-                # Source the environment file to make cargo available in the current session
-                source "$HOME/.cargo/env"
-                echo "Rust toolchain installed and sourced."
+            # Verify the binary exists in /tmp before moving and running it.
+            if [ -f "$REMOTE_TEMP_BINARY" ]; then
+                echo "Pre-built executable found at $REMOTE_TEMP_BINARY. Moving and setting permissions..."
+                sudo mv "$REMOTE_TEMP_BINARY" "$FINAL_BINARY_PATH"
+                sudo chmod +x "$FINAL_BINARY_PATH" # Make the binary executable.
+                
+                echo "Starting Rust API on port 7000 in a detached screen session..."
+                # Start the API using 'screen -dmS' to keep it running in the background.
+                sudo screen -dmS blazing_rust_000 "$FINAL_BINARY_PATH"
+                
+                # Note: Ensure your Rust API code is configured to listen on port 7000.
+                # This YAML starts the binary, but the port binding is controlled by the Rust application's code.
             else
-                echo "Rust toolchain already installed."
+                echo "Error: Pre-built executable NOT found at $REMOTE_TEMP_BINARY on EC2. Copy failed from runner."
+                exit 1 # Fail the SSH step if the binary wasn't copied.
             fi
 
-            echo "Navigating to source directory: $TEMP_CLONE_DIR"
-            cd "$TEMP_CLONE_DIR"
-
-            echo "Building Rust API on EC2 instance..."
-            # THIS IS THE CRUCIAL STEP: Build the Rust project on the EC2 instance.
-            cargo build --release
-
-            BUILD_STATUS=$?
-            if [ $BUILD_STATUS -ne 0 ]; then
-                echo "Rust API build failed on EC2 instance (exit code: $BUILD_STATUS)."
-                exit 1 # Fail the step if build failed
-            fi
-            echo "Rust API build complete on EC2 instance."
-
-            # Define the path to the newly built binary.
-            BUILT_BINARY_PATH="$TEMP_CLONE_DIR/target/release/blazing_rust_000"
-            
-            echo "Locating newly built binary at: $BUILT_BINARY_PATH"
-            if [ ! -f "$BUILT_BINARY_PATH" ]; then
-                echo "Error: Built binary NOT found at $BUILT_BINARY_PATH after compilation."
-                exit 1
-            fi
-
-            echo "Moving binary to $FINAL_BINARY_PATH and setting permissions..."
-            sudo mv "$BUILT_BINARY_PATH" "$FINAL_BINARY_PATH"
-            sudo chmod +x "$FINAL_BINARY_PATH" # Make the binary executable.
-
-            echo "Cleaning up temporary cloned repository: $TEMP_CLONE_DIR"
-            sudo rm -rf "$TEMP_CLONE_DIR" # Remove the cloned source code and build artifacts.
-
-            echo "Starting Rust API on port 7000 in a detached screen session..."
-            sudo screen -dmS blazing_rust_000 "$FINAL_BINARY_PATH"
-            
             echo "Restarting Nginx..."
             sudo systemctl restart nginx
             echo "Reloading Nginx configuration..."
