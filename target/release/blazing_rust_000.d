@@ -1,1 +1,1 @@
-C:\Users\eduar\Documents\work\internal\eduardoos\blazing_rust_000\blazing_rust_000\target\release\blazing_rust_000.exe: C:\Users\eduar\Documents\work\internal\eduardoos\blazing_rust_000\blazing_rust_000\src\main.rs
+/mnt/c/Windows/system32/blazing_rust_000/target/release/blazing_rust_000: /mnt/c/Windows/system32/blazing_rust_000/src/main.rs

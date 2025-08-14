@@ -1,0 +1,9 @@
+error: could not copy "/mnt/c/Windows/system32/blazing_rust_000/target/release/build/lock_api-b5f25316d7c1bab5/out/autocfg_c275b49df5d595a5_0.autocfg_c275b49df5d595a5_0.af042baa0a7514ed-cgu.0.rcgu.ll" to "/mnt/c/Windows/system32/blazing_rust_000/target/release/build/lock_api-b5f25316d7c1bab5/out/autocfg_c275b49df5d595a5_0.ll": Operation not permitted (os error 1)
+
+error: aborting due to 1 previous error
+
+error: could not copy "/mnt/c/Windows/system32/blazing_rust_000/target/release/build/lock_api-b5f25316d7c1bab5/out/autocfg_c275b49df5d595a5_1.autocfg_c275b49df5d595a5_1.6a065a059bf52a3c-cgu.0.rcgu.ll" to "/mnt/c/Windows/system32/blazing_rust_000/target/release/build/lock_api-b5f25316d7c1bab5/out/autocfg_c275b49df5d595a5_1.ll": Operation not permitted (os error 1)
+
+error: aborting due to 1 previous error
+
+warning: autocfg could not probe for `std`
