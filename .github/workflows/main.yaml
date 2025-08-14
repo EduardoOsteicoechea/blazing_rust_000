@@ -11,12 +11,9 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3 # Checks out your Rust API repository code into the runner.
 
-      - name: Build Rust API
-        run: |
-          echo "Building Rust API in release mode..."
-          # Builds the Rust project. The binary will be located at target/release/blazing_rust_000
-          cargo build --release
-          echo "Rust API build complete."
+      # Removed: The "Build Rust API" step that contained `cargo build --release`.
+      # This means the binary must exist at 'target/release/blazing_rust_000'
+      # before this workflow runs, or be supplied by a previous action not shown here.
 
       - name: Set up AWS credentials
         uses: aws-actions/configure-aws-credentials@v1 # Configures AWS credentials for interacting with AWS services.
@@ -64,7 +61,7 @@ jobs:
                 echo "No process found listening on port 7000 using netstat."
               fi
             fi
- 
+            
             echo "Moving binary to /usr/local/bin and setting permissions..."
             # Move the compiled Rust binary from the temporary location to a permanent one.
             # Ensure /usr/local/bin exists or choose another suitable directory like /opt/your_app/.
