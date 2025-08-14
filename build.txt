@@ -1,1 +1,1 @@
-cargo build --release; scp -i eduardoos_rust_tests.pem blazing_rust_000.exe ubuntu@ec2-100-27-227-50.compute-1.amazonaws.com:~/transfers; git add .; git commit -m "update"; git push; 
+cargo build --release; scp -i eduardoos_rust_tests.pem ./target/release/blazing_rust_000.exe ubuntu@ec2-100-27-227-50.compute-1.amazonaws.com:~/transfers; git add .; git commit -m "update"; git push; 
