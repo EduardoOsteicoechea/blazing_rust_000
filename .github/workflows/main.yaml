@@ -1,4 +1,4 @@
-name: Deploy Pre-Built Rust API to EC2 (Direct Copy - No Build)
+name: Run Pre-Built and placed Rust API Exec on EC2
 
 on:
   push:
@@ -20,19 +20,6 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }} # Your AWS Secret Access Key, stored as a GitHub secret.
           aws-region: ${{ secrets.AWS_REGION }} # Your AWS region, stored as a GitHub secret.
 
-      - name: Copy Pre-Built Rust binary to EC2 instance
-        uses: appleboy/scp-action@master # Uses the SCP action to securely copy files to your EC2 instance.
-        with:
-          host: ${{ secrets.HOST_DNS }}
-          username: ${{ secrets.USERNAME }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          # Source path of the pre-built Rust binary on the runner.
-          # This step will FAIL if 'target/release/blazing_rust_000' does not exist
-          # in your repository's checked-out code on the runner.
-          source: "target/release/blazing_rust_000"
-          target: "/tmp" # Temporary destination path on the EC2 instance.
-          overwrite: true # Overwrite existing file.
-
       - name: Connect to EC2 instance and Deploy API
         uses: appleboy/ssh-action@master # Uses the SSH action to connect to your EC2 instance and run commands.
         with:
@@ -40,13 +27,10 @@ jobs:
           username: ${{ secrets.USERNAME }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
-            FINAL_BINARY_PATH="/usr/local/bin/blazing_rust_000"
-            REMOTE_TEMP_BINARY="/tmp/blazing_rust_000"
-
-            echo "Clearing Nginx cache..."
+            FINAL_BINARY_PATH="$~/transfers/blazing_rust_000"
+            
             sudo rm -rf /var/cache/nginx/*
 
-            # Kill any existing process running on port 7000 to avoid conflicts.
             echo "Checking and killing processes on port 7000..."
             if command -v lsof >/dev/null 2>&1; then
               if sudo lsof -ti:7000; then
@@ -65,22 +49,18 @@ jobs:
               fi
             fi
 
-            # Verify the binary exists in /tmp after copy before moving and running it.
-            if [ -f "$REMOTE_TEMP_BINARY" ]; then
-                echo "Pre-built executable found at $REMOTE_TEMP_BINARY. Moving and setting permissions..."
-                sudo mv "$REMOTE_TEMP_BINARY" "$FINAL_BINARY_PATH"
-                sudo chmod +x "$FINAL_BINARY_PATH" # Make the binary executable.
-                
-                echo "Starting Rust API on port 7000 in a detached screen session..."
-                # Start the API using 'screen -dmS' to keep it running in the background.
-                sudo screen -dmS blazing_rust_000 "$FINAL_BINARY_PATH"
-                
-                # Note: Ensure your Rust API code is configured to listen on port 7000.
-                # This YAML starts the binary, but the port binding is controlled by the Rust application's code.
-            else
-                echo "Error: Pre-built executable NOT found at $REMOTE_TEMP_BINARY on EC2. Copy failed from runner."
-                exit 1 # Fail the SSH step if the binary wasn't copied.
+            echo "Verifying executable at $FINAL_BINARY_PATH..."
+            if [ ! -f "$FINAL_BINARY_PATH" ]; then
+                echo "Error: Executable NOT found at $FINAL_BINARY_PATH. Cannot run."
+                exit 1 # Fail the SSH step if the binary isn't there.
             fi
+            
+            sudo chmod +x "$FINAL_BINARY_PATH"
+            echo "Executable permissions set."
+
+            echo "Starting Rust API on port 7000 in a detached screen session..."
+            sudo screen -S blazing_rust_000 "$FINAL_BINARY_PATH"
+            
 
             echo "Restarting Nginx..."
             sudo systemctl restart nginx
