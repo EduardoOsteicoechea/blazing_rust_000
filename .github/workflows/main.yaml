@@ -25,14 +25,13 @@ jobs:
           username: ${{ secrets.USERNAME }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
-            REMOTE_REPO_URL="https://github.com/EduardoOsteicoechea/blazing_rust_000.git" # Assuming this is your API repo
-            TEMP_CLONE_DIR="/tmp/blazing_rust_source" # Temporary directory on EC2 to clone the source into.
-            FINAL_BINARY_PATH="/usr/local/bin/blazing_rust_000" # Where the executable will reside.
+            REMOTE_REPO_URL="https://github.com/EduardoOsteicoechea/blazing_rust_000.git"
+            TEMP_CLONE_DIR="/tmp/blazing_rust_000"
+            FINAL_BINARY_PATH="/usr/local/bin/blazing_rust_000"
 
             echo "Clearing Nginx cache..."
             sudo rm -rf /var/cache/nginx/*
 
-            # Kill any existing process running on port 7000 to avoid conflicts.
             echo "Checking and killing processes on port 7000..."
             if command -v lsof >/dev/null 2>&1; then
               if sudo lsof -ti:7000; then
@@ -51,22 +50,16 @@ jobs:
               fi
             fi
 
-            # Clean up any previous temporary clone to ensure a fresh start.
             echo "Cleaning up any previous temporary cloned directory ($TEMP_CLONE_DIR)..."
             sudo rm -rf "$TEMP_CLONE_DIR"
 
-            echo "Cloning repository to temporary directory: $TEMP_CLONE_DIR"
-            # Clone the repository into a temporary directory on the EC2 instance.
             git clone "$REMOTE_REPO_URL" "$TEMP_CLONE_DIR"
 
-            # Check if cloning was successful
             if [ ! -d "$TEMP_CLONE_DIR" ]; then
                 echo "Error: Failed to clone repository $REMOTE_REPO_URL"
                 exit 1
             fi
 
-            # Define the path to the pre-built binary within the cloned repository.
-            # Assuming the pre-built binary is committed at this location.
             SOURCE_BINARY_IN_REPO="$TEMP_CLONE_DIR/target/release/blazing_rust_000"
 
             echo "Locating pre-built binary at: $SOURCE_BINARY_IN_REPO"
@@ -84,8 +77,14 @@ jobs:
             sudo rm -rf "$TEMP_CLONE_DIR" # Remove the cloned source code.
 
             echo "Starting Rust API on port 7000 in a detached screen session..."
-            # Start the API using 'screen -dmS' to keep it running in the background.
-            sudo screen -dmS blazing_rust_000 "$FINAL_BINARY_PATH"
-            
-            # Note: Ensure your Rust API code is configured to listen on port 7000.
-            # This YAML starts the binary, but the
+            sudo screen -S blazing_rust_000 "$FINAL_BINARY_PATH"
+
+            echo "Restarting Nginx..."
+            sudo systemctl restart nginx
+            echo "Reloading Nginx configuration..."
+            sudo systemctl reload nginx 
+
+      - name: Wait for deployment
+        run: |
+          echo "Waiting 5 seconds for services to come online..."
+          sleep 5
